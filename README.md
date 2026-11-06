@@ -14,6 +14,7 @@
 - [五分钟跑通](#五分钟跑通)
 - [命令速查](#命令速查)
 - [网页面板](#网页面板)
+- [加密常量（登录 key 与 enc 盐值）](#加密常量登录-key-与-enc-盐值)
 - [配置文件说明](#配置文件说明)
 - [AI 答题（可选）](#ai-答题可选)
 - [常见问题](#常见问题)
@@ -377,6 +378,10 @@ Get-NetTCPConnection -LocalPort 8765 | Select-Object OwningProcess
 | `cx reset [名字] [--course N] [--types video]` | 把任务点重置为待执行，下次 `scan` 重新对齐服务端 |
 | `cx cookies [名字] [--prune]` | 查看会话 cookie；`--prune` 清除风控/埋点 cookie |
 | `cx enc [v1\|v2]` | 查看或切换视频上报签名版本 |
+| `cx crypto show [--reveal]` | 查看登录 AES key / enc 盐值的来源（默认打码） |
+| `cx crypto probe [aes_key\|enc_salt]` | 现场探测这两个常量并缓存到 `data/state/crypto.json` |
+| `cx crypto set <名字> <值>` | 探测不到时手动填（`aes_key` / `enc_salt`） |
+| `cx crypto clear [名字]` | 清掉本地缓存 |
 | `cx face [名字] [--url ...]` | 人工过刷脸/扫码，成功后自动把新 cookie 导回 |
 | `cx quiz stats / export / import / add / pull` | 题库管理 |
 | `cx ai test` / `cx ai ask <题目.json>` | 验证 AI 接口 / 离线试答 |
@@ -394,6 +399,32 @@ Get-NetTCPConnection -LocalPort 8765 | Select-Object OwningProcess
 | `--task-concurrency 3` | 同一账号内并行处理几个任务点 | `1 ~ 4` |
 | `--retries 2` | 单个任务失败重试次数 | 默认 |
 | `--concurrency 3` | **多个账号**之间的并发 | 多账号才用 |
+
+---
+
+## 加密常量（登录 key 与 enc 盐值）
+
+登录用的 AES key、视频上报 enc 用的盐值都不写死在源码里：平台改了不用改代码，仓库里也不留「现成钥匙」。
+运行时按下面的顺序取，取到就用：
+
+| 顺序 | 来源 | 说明 |
+|---|---|---|
+| 1 | 环境变量 `CX_AES_KEY` / `CX_ENC_SALT` | 临时覆盖，优先级最高 |
+| 2 | `data/state/crypto.json` | `cx crypto` 写入的本地缓存，`.gitignore` 已排除 |
+| 3 | 现场探测 | 登录页 JS 里的 `transferKey`、播放器 bundle 里 format 模板的盐值 |
+
+`cx doctor` 会显示这两项当前各自从哪来；三个来源都拿不到时，命令会直接把下一步该敲的命令打出来。
+
+```powershell
+cx crypto show            # 来源 + 打码后的值
+cx crypto show --reveal   # 看明文
+cx crypto probe           # 两个都探一遍并写缓存（需要能访问超星）
+cx crypto set enc_salt <值>   # 自动探测失败时手动填
+cx crypto clear           # 清缓存
+```
+
+探测只发生在第一次真正用到时（登录、跑视频），之后都走缓存。以后平台换了盐值导致视频
+`isPassed` 一直是 false，重跑一次 `cx crypto probe` 就行，不用等版本更新。
 
 ---
 
@@ -778,7 +809,8 @@ FuckChaoXing/
 │   ├── ai.py              AI 答题客户端（OpenAI 兼容）
 │   ├── api/               超星各接口：course / video / document / quiz
 │   ├── task/              任务处理器：video / document / quiz + 基类
-│   ├── crypto/            AES 登录加密、上报签名 enc、混淆字体解码
+│   ├── crypto/            加密：AES 登录、enc 上报签名、混淆字体解码
+│   │                        keys.py 负责运行时解析 key / 盐值（不含字面量）
 │   ├── store/             SQLite schema 与仓储层
 │   └── web/               网页面板（可选依赖：fastapi / uvicorn）
 │       ├── app.py        FastAPI 应用：REST + SSE + 口令中间件

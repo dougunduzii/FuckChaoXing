@@ -22,7 +22,7 @@ web = ["fastapi>=0.110", "uvicorn>=0.29"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [project.scripts]
-cx = "chaoxing.cli:app"
+cx = "chaoxing.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

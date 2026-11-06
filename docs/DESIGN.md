@@ -90,6 +90,7 @@ FuckChaoXing/
 │  │  ├─ document.py          # /ananas/job/document、/ananas/job/readv2
 │  │  └─ quiz.py              # api/work 取题、addStudentWorkNew 提交
 │  ├─ crypto/
+│  │  ├─ keys.py              # 运行时解析 AES key / enc 盐值（env → 缓存 → 探测）
 │  │  ├─ aes.py               # AES-128-CBC/PKCS7（登录用）
 │  │  ├─ enc.py               # 视频 enc / attDurationEnc 生成 + 版本探测
 │  │  └─ font.py              # cxSecretStyle 字体混淆解码
@@ -150,7 +151,7 @@ AES 规格（见 `crypto/aes.py`）：
 | 参数 | 值 |
 |---|---|
 | 算法 | AES-128-CBC |
-| key | `u2oh6Vu^HWe4_AES`（16 字节 ASCII） |
+| key | 运行时解析（16 字节 ASCII）：`CX_AES_KEY` → `data/state/crypto.json` → 探测登录页 JS 的 `transferKey` |
 | iv | 同 key |
 | padding | PKCS7 |
 | 输出 | base64 |
@@ -259,11 +260,15 @@ GET https://mooc1.chaoxing.com/mooc-ans/multimedia/log/a/{cpi}/{dtoken}
 **enc 算法（2025 现行版）**
 
 ```python
-SALT = "d_yHJ!$pdA~5"
+salt = keys.get_secret("enc_salt")        # 运行时解析，源码里不存字面量
 enc = md5(f"[{clazzId}][{userid}][{jobid}][{objectId}]"
-          f"[{playingTime*1000}][{SALT}]"
+          f"[{playingTime*1000}][{salt}]"
           f"[{duration*1000}][0_{duration}]").hexdigest()
 ```
+
+盐值同样走 `crypto/keys.py`：`CX_ENC_SALT` 环境变量 → `data/state/crypto.json` 缓存 →
+探测播放器 bundle 里 format 模板的字面量。`cx crypto probe` 一次探完并缓存，
+`cx crypto set enc_salt <值>` 手动兜底，`cx crypto show --reveal` 看当前值。
 
 老版（无 salt / 无 duration 段）：
 ```python
@@ -430,6 +435,7 @@ cx run   --account all --course all \
 cx status [--watch]                # rich 表格：课程 → 章节 → 任务点进度
 cx quiz  export > bank.jsonl       # 题库备份
 cx quiz  import bank.jsonl
+cx crypto show / probe / set      # 加密常量：来源、现场探测、手动兜底（不落源码）
 cx probe enc                       # 重跑 enc 版本探针
 cx web  --port 8420                # 本地面板（可选，SSE 推进度）
 ```

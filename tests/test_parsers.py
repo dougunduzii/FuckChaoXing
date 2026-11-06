@@ -31,7 +31,7 @@ def test_aes_known_length():
 
 def test_enc_v2_shape():
     got = enc.enc_v2("1234", "88", "job-1", "obj-1", 60, 600)
-    expect = enc.md5("[1234][88][job-1][obj-1][60000][d_yHJ!$pdA~5][600000][0_600]")
+    expect = enc.md5(f"[1234][88][job-1][obj-1][60000][{enc.current_salt()}][600000][0_600]")
     assert got == expect
     assert len(got) == 32
 

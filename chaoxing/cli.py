@@ -23,9 +23,11 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help="超星学习
 account_app = typer.Typer(no_args_is_help=True, help="账号管理")
 quiz_app = typer.Typer(no_args_is_help=True, help="题库管理")
 ai_app = typer.Typer(no_args_is_help=True, help="AI 答题接口")
+crypto_app = typer.Typer(no_args_is_help=True, help="加密常量（运行时探测 / 本地缓存）")
 app.add_typer(account_app, name="account")
 app.add_typer(quiz_app, name="quiz")
 app.add_typer(ai_app, name="ai")
+app.add_typer(crypto_app, name="crypto")
 
 CONFIG_PATH = Path("config.toml")
 
@@ -89,6 +91,14 @@ def cmd_doctor(verbose: bool = typer.Option(False, "--verbose")):
     accounts = repo.list_accounts()
     table.add_row("账号数", str(len(accounts)))
     table.add_row("enc 版本", repo.meta_get("enc_version", "v2") or "v2")
+
+    from .crypto import keys
+
+    for name, info in keys.store().report().items():
+        if info["present"]:
+            table.add_row(info["label"], f"[green]{info['source']}[/green] {info['masked']}")
+        else:
+            table.add_row(info["label"], f"[yellow]未解析[/yellow] cx crypto probe 或 {info['env']}=…")
     console.print(table)
 
 
@@ -395,6 +405,91 @@ def cmd_enc(version: Optional[str] = typer.Argument(None, help="v1 或 v2")):
     console.print(f"[green]已设置 enc 版本 {version}[/green]")
 
 
+# ---------------------------------------------------------------- 加密常量
+def _crypto_keys():
+    from .crypto import keys
+
+    return keys
+
+
+@crypto_app.command("show")
+def cmd_crypto_show(reveal: bool = typer.Option(False, "--reveal", help="显示明文")):
+    """查看 AES key / enc 盐值的来源与缓存位置。"""
+    keys = _crypto_keys()
+    store = keys.store()
+    table = Table(title="加密常量")
+    table.add_column("项")
+    table.add_column("来源")
+    table.add_column("值")
+    for info in store.report().values():
+        if not info["present"]:
+            table.add_row(info["label"], "[yellow]未解析[/yellow]", f"cx crypto probe 或 {info['env']}=…")
+            continue
+        value = store.peek(info["name"]) or ""
+        table.add_row(info["label"], f"[green]{info['source']}[/green]", value if reveal else info["masked"])
+    console.print(table)
+    console.print(f"[dim]{store.path}（默认打码，--reveal 看明文；缓存不进仓库）[/dim]")
+
+
+@crypto_app.command("probe")
+def cmd_crypto_probe(
+    name: Optional[str] = typer.Argument(None, help="aes_key / enc_salt，省略则全部探测"),
+    timeout: float = typer.Option(20.0, "--timeout", help="单次请求超时（秒）"),
+):
+    """现场探测平台常量并写入本地缓存。"""
+    keys = _crypto_keys()
+    targets = [name] if name else list(keys.SLOTS)
+    store = keys.KeyStore(timeout=timeout)
+    failed = False
+    for target in targets:
+        if target not in keys.SLOTS:
+            console.print(f"[red]未知常量 {target}[/red]，可选 {', '.join(keys.SLOTS)}")
+            raise typer.Exit(code=1)
+        try:
+            value = store.probe(target)
+        except keys.KeyMissing as exc:
+            failed = True
+            console.print(f"[red]{keys.LABELS[target]}探测失败[/red]：{exc.reason or exc}")
+            continue
+        except keys.BadSecret as exc:
+            failed = True
+            console.print(f"[red]{keys.LABELS[target]}探测结果不可用[/red]：{exc}")
+            continue
+        store.set(target, value, source="probe")
+        console.print(f"[green]{keys.LABELS[target]}已缓存[/green]：{keys.mask(value)}")
+    keys.reset_store()
+    if failed:
+        raise typer.Exit(code=1)
+
+
+@crypto_app.command("set")
+def cmd_crypto_set(
+    name: str = typer.Argument(..., help="aes_key / enc_salt"),
+    value: str = typer.Argument(..., help="常量明文"),
+):
+    """手动写入常量到本地缓存（探测不到时用）。"""
+    keys = _crypto_keys()
+    try:
+        keys.store().set(name, value)
+    except keys.BadSecret as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    keys.reset_store()
+    console.print(f"[green]已写入[/green] {name} = {keys.mask(value)}（{keys.store().path}）")
+
+
+@crypto_app.command("clear")
+def cmd_crypto_clear(name: Optional[str] = typer.Argument(None, help="aes_key / enc_salt，省略则全部")):
+    """清掉本地缓存的常量。"""
+    keys = _crypto_keys()
+    cleared = keys.store().clear(name)
+    keys.reset_store()
+    if cleared:
+        console.print(f"[green]已清除[/green] {', '.join(cleared)}")
+    else:
+        console.print("[yellow]缓存里没有对应条目[/yellow]")
+
+
 @app.command("web")
 def cmd_web(
     host: str = typer.Option(
@@ -485,7 +580,13 @@ def cmd_quiz_add(
 
 
 def main() -> None:  # pragma: no cover
-    app()
+    from .crypto.keys import BadSecret, KeyMissing
+
+    try:
+        app()
+    except (KeyMissing, BadSecret) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":  # pragma: no cover
