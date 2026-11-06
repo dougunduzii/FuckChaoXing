@@ -65,7 +65,8 @@
 ### 1. 进入项目目录
 
 ```powershell
-cd E:\desktop\FuckChaoXing
+git clone https://github.com/dougunduzii/FuckChaoXing.git
+cd FuckChaoXing
 ```
 
 ### 2. 创建虚拟环境
