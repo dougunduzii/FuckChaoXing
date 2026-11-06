@@ -7,7 +7,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from loguru import logger
 
@@ -46,9 +46,25 @@ class RunReport:
 
 
 class Engine:
-    def __init__(self, settings: Settings, repo: Repo | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        repo: Repo | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> None:
         self.settings = settings
         self.repo = repo or Repo(settings.db_path)
+        # 面板进度回调；CLI 下为 None，行为与以前完全一致
+        self.on_event = on_event
+
+    def _emit(self, kind: str, **payload: Any) -> None:
+        hook = self.on_event
+        if hook is None:
+            return
+        try:
+            hook(kind, payload)
+        except Exception:  # 回调炸了不能把跑任务带崩
+            logger.debug(f"on_event 回调异常，已忽略: {kind} {payload}")
 
     # ---------------- 会话 ----------------
     def session_for(self, account: dict[str, Any]) -> CxSession:
@@ -70,24 +86,50 @@ class Engine:
         account = self.repo.get_account(name)
         assert account is not None
         report = ScanReport(account=name)
+        self._emit("scan", stage="login", account=name)
 
         async with self.session_for(account) as sess:
             msg = await auth.ensure_login(sess, name, self.repo)
             if msg is None:
                 report.errors.append("会话失效，需要重新登录")
+                self._emit("scan", stage="error", account=name, error="会话失效，需要重新登录")
                 return report
             account = self.repo.get_account(name)
 
             courses = await course_api.fetch_courses(sess, include_folders=include_folders)
             report.courses = len(courses)
             logger.info(f"[{name}] 课程 {len(courses)} 门")
+            self._emit("scan", stage="courses", account=name, total=len(courses))
 
-            for c in courses:
+            for i, c in enumerate(courses, start=1):
+                self._emit(
+                    "scan",
+                    stage="course",
+                    account=name,
+                    index=i - 1,
+                    total=len(courses),
+                    title=c.get("title") or "",
+                )
                 try:
                     await self._scan_course(sess, account, c, report)
                 except Exception as exc:  # 单课失败不影响其它
                     logger.warning(f"[{name}] 课程「{c.get('title')}」抓取失败: {exc}")
                     report.errors.append(f"{c.get('title')}: {exc}")
+                    self._emit(
+                        "scan", stage="course_error", account=name,
+                        index=i - 1, total=len(courses), title=c.get("title") or "",
+                        error=str(exc),
+                    )
+                self._emit(
+                    "scan",
+                    stage="course_done",
+                    account=name,
+                    index=i,
+                    total=len(courses),
+                    title=c.get("title") or "",
+                    tasks=report.tasks,
+                    chapters=report.chapters,
+                )
 
         logger.info(
             f"[{name}] 抓取完成：{report.courses} 课 / {report.chapters} 章 / "
@@ -243,6 +285,10 @@ class Engine:
                 tasks = tasks[: max(0, limit)]
             report.total = len(tasks)
             logger.info(f"[{name}] 待处理任务点 {len(tasks)} 个，今日已用 {spent / 60:.0f} 分钟")
+            self._emit(
+                "run", stage="start", account=name, total=len(tasks),
+                done=0, skipped=0, failed=0, dry_run=dry_run,
+            )
 
             counter = {"idx": 0}
             counter_lock = asyncio.Lock()
@@ -292,6 +338,11 @@ class Engine:
 
         report.seconds = time.monotonic() - started
         self._add_usage(int(account["id"]), int(report.seconds))
+        self._emit(
+            "run", stage="end", account=name, total=report.total, done=report.done,
+            skipped=report.skipped, failed=report.failed,
+            seconds=round(report.seconds, 1),
+        )
         logger.info(
             f"[{name}] 结束：完成 {report.done} / 跳过 {report.skipped} / "
             f"失败 {report.failed}，用时 {report.seconds / 60:.1f} 分钟" + ("（演练，未提交任何请求）" if dry_run else "")
@@ -370,6 +421,13 @@ class Engine:
                 report.errors.append(f"{task['title']}: {result.detail}")
             counter["idx"] += 1
             idx = counter["idx"]
+
+        self._emit(
+            "run", stage="task", account=name, index=idx, total=total,
+            done=report.done, skipped=report.skipped, failed=report.failed,
+            ok=bool(result.ok), type=task["type"], title=task.get("title") or "",
+            detail=result.detail,
+        )
 
         if result.ok and not dry_run and not result.skipped:
             self._maybe_finish_chapter(int(task["chapter_pk"]))

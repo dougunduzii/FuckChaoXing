@@ -31,6 +31,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["chaoxing*"]
 
+# 面板的 html/css/js 不是 .py，打包时要显式带上，否则装完打开是空白页
+[tool.setuptools.package-data]
+"chaoxing.web" = ["static/*.html", "static/*.css", "static/*.js", "static/*.ico", "static/*.svg"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

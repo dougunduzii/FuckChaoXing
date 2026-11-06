@@ -397,25 +397,44 @@ def cmd_enc(version: Optional[str] = typer.Argument(None, help="v1 或 v2")):
 
 @app.command("web")
 def cmd_web(
-    host: str = typer.Option("127.0.0.1", "--host", help="监听地址；想让同局域网其它设备访问填 0.0.0.0"),
-    port: int = typer.Option(8765, "--port", help="端口"),
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="监听地址；填 0.0.0.0 让同局域网设备访问（会自动加口令）"
+    ),
+    port: int = typer.Option(8765, "--port", help="端口；0 = 由系统分配"),
+    port_auto: bool = typer.Option(
+        True, "--port-auto/--no-port-auto", help="端口被占用时自动向后顺延"
+    ),
+    token: Optional[str] = typer.Option(
+        None, "--token", help="访问令牌；绑定非回环地址时不给就自动生成"
+    ),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="启动后自动打开浏览器"),
+    reload: bool = typer.Option(False, "--reload", help="代码改动自动重载（开发用）"),
+    log_level: str = typer.Option("info", "--log-level", help="uvicorn 日志级别"),
+    verbose: bool = typer.Option(False, "--verbose"),
 ):
-    """启动网页控制面板（默认 http://127.0.0.1:8765）。"""
+    """启动网页控制面板：进度、任务点、日志、请求记录全在这里看。"""
     try:
-        import uvicorn
-    except ImportError:  # pragma: no cover
-        console.print("[red]缺少依赖：pip install fastapi uvicorn[/red]")
+        import uvicorn  # noqa: F401
+    except ImportError:
+        console.print("[red]缺少依赖：pip install 'fastapi' 'uvicorn[standard]'[/red]")
         raise typer.Exit(code=1)
 
-    url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}"
-    console.print(f"网页面板：[cyan]{url}[/cyan]  （Ctrl+C 停止）")
-    if open_browser:
-        import threading
-        import webbrowser
+    settings, repo = _boot(verbose)
+    repo.close()
 
-        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
-    uvicorn.run("chaoxing.web.app:app", host=host, port=port, reload=False)
+    from .web.serve import run_panel
+
+    code = run_panel(
+        host=host,
+        port=port,
+        open_browser=open_browser,
+        reload=reload,
+        token=token,
+        port_auto=port_auto,
+        log_level=log_level,
+    )
+    if code:
+        raise typer.Exit(code=code)
 
 
 # ---------------------------------------------------------------- 题库
