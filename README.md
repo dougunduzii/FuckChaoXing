@@ -600,3 +600,12 @@ cx run me --dry-run --limit 3
 - 同一账号**不要同时开两个进程**跑，会互相踩心跳并触发风控。
 - 签到 / 签退不在本项目范围，用 [ChaoxingSignFaker](https://github.com/aquamarine5/ChaoxingSignFaker) 那台手机去做。
 - 线上风控策略会变。`cx enc`、`cx scan`、`cx status` 就是给你在这时候核对用的：先看真实页面，再改代码。
+
+---
+
+## 许可证
+
+[MIT](LICENSE) © 2026 dougunduzii
+
+随便用、随便改、随便分发，包括商用；保留版权声明即可。代码按现状提供，不附带任何担保。
+
