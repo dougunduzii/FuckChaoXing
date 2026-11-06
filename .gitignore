@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 本地状态：cookie、数据库、日志、字体映射、审计
+data/
+config.toml
+*.egg-info/

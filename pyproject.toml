@@ -1,0 +1,35 @@
+[project]
+name = "chaoxing-auto"
+version = "0.1.0"
+description = "超星学习通任务点自动化工具（CLI + 本地面板）"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28",
+    "lxml>=5.0",
+    "beautifulsoup4>=4.12",
+    "fonttools>=4.50",
+    "cryptography>=42.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "loguru>=0.7",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.40"]
+web = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+cx = "chaoxing.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["chaoxing*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
