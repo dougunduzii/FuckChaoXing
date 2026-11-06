@@ -13,7 +13,9 @@
 - [安装（虚拟环境）](#安装虚拟环境)
 - [五分钟跑通](#五分钟跑通)
 - [命令速查](#命令速查)
+- [网页面板](#网页面板)
 - [配置文件说明](#配置文件说明)
+- [AI 答题（可选）](#ai-答题可选)
 - [常见问题](#常见问题)
 - [配合使用：签到交给 ChaoxingSignFaker](#配合使用签到交给-chaoxingsignfaker)
 - [数据存在哪里](#数据存在哪里)
@@ -251,6 +253,87 @@ cx run me --task-concurrency 3 --speed 2.0
 
 ---
 
+## 网页面板
+
+不想一直盯着黑框框？有个本地网页控制台。
+
+### 怎么打开
+
+```powershell
+cx web
+```
+
+就这一条。它会：
+
+1. 在 `127.0.0.1:8765` 起一个本地服务；
+2. 自动帮你打开默认浏览器（等你 1.2 秒，服务起来了再开）；
+3. 终端里会打印一行 `网页面板：http://127.0.0.1:8765  （Ctrl+C 停止）`。
+
+如果浏览器没自动弹出来，自己复制那个地址粘进地址栏就行。
+
+> `cx web` 不存在（提示 `No such command`）说明你的项目版本旧了，或第 5 步 `pip install -e . --no-deps` 没做。退路是直接调模块，效果一样：
+> ```powershell
+> python -m chaoxing.web.app
+> ```
+
+### 面板上能看到什么
+
+| 区域 | 内容 |
+|---|---|
+| 顶部徽标 | 当前状态（空闲 / 运行中），右下角显示 enc 版本 |
+| 账号下拉框 | 选某个账号，或「全部账号」 |
+| 任务点表格 | 按「类型 × 状态」汇总的数量（如 `video pending 17`） |
+| 课程表格 | `id / 课程 / 章节 / 完成-总任务点` |
+| 日志窗格 | 跟终端同一份输出，2 秒刷新一次，保留最近 400 行 |
+
+### 面板上能做什么
+
+| 按钮 | 作用 | 等价命令 |
+|---|---|---|
+| 抓取课程结构 | 重新抓课程 → 章节 → 任务点 | `cx scan` |
+| 开始刷课 | 按当前账号开跑 | `cx run <账号>` |
+| 试跑（不发上报） | 只走流程、不发心跳，安全预演 | `cx run <账号> --dry-run` |
+
+三个按钮在运行中会自动置灰，避免同时开两份。
+
+**面板上没有「停止」按钮**——要停就在启动 `cx web` 的那个终端按 `Ctrl+C`，或者直接关掉那个终端窗口。进度都已落库，重开不会从头再来。
+
+想按类型只跑一部分（比如只刷视频），面板暂时没有这个开关，用命令行：
+
+```powershell
+cx run me --types video
+```
+
+### 换端口 / 让别的设备访问
+
+```powershell
+cx web --port 9000              # 换端口
+cx web --host 0.0.0.0           # 同一局域网内的手机/平板也能开
+cx web --no-open                # 不自动开浏览器
+```
+
+> 面板**没有任何登录校验**，谁能访问这个端口，谁就能操作你的账号。只在 `127.0.0.1` 上用；确需局域网访问时，别在公共 WiFi 下开。
+
+### 面板第一次打开是空的
+
+正常。面板读的是数据库，跟命令行是同一份 `data/cx.db`。先按「五分钟跑通」做完 `cx init` / `cx login` / `cx scan`，刷新页面就有数据了。
+
+面板和命令行可以同时用：一个终端里 `cx run me` 在跑，页面上照样能看到进度和日志。但**不要在两个终端同时 `cx run` 同一个账号**，那是最容易触发 9010 的操作。
+
+### 端口被占用
+
+```
+ERROR: [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8765)
+```
+
+改端口就行：`cx web --port 8766`。也可以看看是谁占着：
+
+```powershell
+Get-NetTCPConnection -LocalPort 8765 | Select-Object OwningProcess
+```
+
+---
+
 ## 命令速查
 
 | 命令 | 作用 |
@@ -272,7 +355,7 @@ cx run me --task-concurrency 3 --speed 2.0
 | `cx face [名字] [--url ...]` | 人工过刷脸/扫码，成功后自动把新 cookie 导回 |
 | `cx quiz stats / export / import / add / pull` | 题库管理 |
 | `cx ai test` / `cx ai ask <题目.json>` | 验证 AI 接口 / 离线试答 |
-| `python -m chaoxing.web.app` | 启动网页控制面板（默认 http://127.0.0.1:8765） |
+| `cx web [--port N] [--host 0.0.0.0]` | 启动网页控制面板（默认 http://127.0.0.1:8765，详见 [网页面板](#网页面板)） |
 
 ### `cx run` 的常用参数
 
@@ -328,23 +411,23 @@ count_ai_as_known = true # AI 给出的答案也算"已知"
 
 ### `[ai]` —— 让 AI 帮你答题（可选）
 
-任何兼容 OpenAI 的接口都能用（OpenAI、DeepSeek、通义、本地 vLLM/Ollama…）：
+留空就是关闭。完整字段：
 
 ```toml
 [ai]
-enabled  = true
-base_url = "https://api.deepseek.com/v1"
-api_key  = "sk-xxxxxxxx"
-model    = "deepseek-chat"
+enabled     = false                          # 改成 true 才启用
+base_url    = "https://api.openai.com/v1"    # 任何兼容 OpenAI 的接口
+api_key     = ""                             # 你的 key，别提交到 git
+model       = "gpt-4o-mini"
+temperature = 0.2                            # 答题要稳，别调高
+timeout     = 60.0
+retries     = 2
+batch_size  = 12                             # 一次送几道题
+max_tokens  = 1600
+json_mode   = "schema"                       # schema | object | text，服务端不支持会自动降级
 ```
 
-先验证通不通：
-
-```powershell
-cx ai test
-```
-
-答题链路是：**题库命中 → AI 作答 → 都不行就留空跳过（绝不瞎猜）**。AI 给出的答案会自动存进题库，下次同一道题不再花 token。
+填完先跑 `cx ai test` 验证。完整操作步骤、各家接口怎么填、费用和注意事项见下面的 [AI 答题](#ai-答题可选)。
 
 ### `[risk]` —— 风控保险
 
@@ -355,28 +438,148 @@ max_lanes        = 8     # 同时在飞的通道上限，超了会被夹住
 
 ---
 
+## AI 答题（可选）
+
+章节测验如果只有题库，一旦遇到题库里没有的题就只能留空。接一个模型就能把剩下的题也答上。
+
+**不需要就别开**：`[ai] enabled = false` 时，脚本完全不联网调模型，题库里没有的题一律留空跳过——这一点不会变。
+
+### 第 1 步：准备一个 key
+
+任何兼容 OpenAI `/v1/chat/completions` 的服务都行，选一个填进 `config.toml`：
+
+| 服务商 | `base_url` | `model` 举例 | 备注 |
+|---|---|---|---|
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` | 便宜，中文稳，最省心 |
+| 阿里百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` | 国内直连快 |
+| 月之暗面 | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` | 长题目友好 |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | 需要能连外网 |
+| 本机 Ollama | `http://127.0.0.1:11434/v1` | `qwen2.5:7b` | 白嫖、数据不出本机，`api_key` 随便填 `ollama` |
+
+拿到 key 后**别直接贴在聊天里、别提交到 git**。`config.toml` 已经在 `.gitignore` 里，放这里就行。
+
+### 第 2 步：写进配置
+
+```toml
+[ai]
+enabled  = true
+base_url = "https://api.deepseek.com/v1"
+api_key  = "sk-你的key"
+model    = "deepseek-chat"
+```
+
+保存，不用重启任何东西。
+
+### 第 3 步：先验证通不通
+
+```powershell
+cx ai test
+```
+
+正常会打印类似：
+
+```
+接口：https://api.deepseek.com/v1/chat/completions
+模型：deepseek-chat
+OK 1834 ms｜我是 DeepSeek，一个乐于助人的助手。
+tokens: prompt 18 / completion 12
+```
+
+看到报错就按表处理：
+
+| 报错 | 意思 | 怎么办 |
+|---|---|---|
+| `HTTP 401` / `403` | key 不对或没权限 | 重新复制 key，注意别多空格 |
+| `HTTP 404` | `base_url` 多了或少了 `/v1` | 按上表逐字对齐 |
+| `json_mode=schema 不支持` | 该服务没有 `response_format` 的 json_schema | 保留默认即可，脚本会自动降级到 `object`、再到 `text` |
+| `连接超时` | 网络到不了 | 换国内服务商，或给本机代理：`$env:HTTPS_PROXY="http://127.0.0.1:10809"` |
+
+### 第 4 步：离线试答一次（推荐）
+
+先看看它答得准不准，再让它上场：
+
+```powershell
+cx quiz pull me            # 把本课程所有题面导成 data/quiz-pull.json
+cx ai ask data/quiz-pull.json --out data/ai-answers.json
+```
+
+`cx quiz pull` 只读接口，不会提交任何东西；`cx ai ask` 把题目喂给模型，输出每题的答案和置信度。打开 `data/ai-answers.json` 抽查几道，觉得靠谱再进下一步。
+
+答案满意的话直接导回题库，之后正式跑就是"题库命中"：
+
+```powershell
+cx quiz import data/ai-answers.json
+```
+
+### 第 5 步：正式跑
+
+```powershell
+cx run me --types work
+```
+
+日志里会看到每份测验的处理结果：
+
+```
+[me] 测验「第3章 章节测验」12 题
+[me] 覆盖率 100%（题库 8 / AI 4 / 空白 0 / 共 12）→ 提交
+[me] (5/12) work 第3章 章节测验 -> OK 覆盖率 100% 已提交 [0.8min]
+
+[me] 测验「第5章 章节测验」12 题
+[me] 覆盖率 58%（题库 2 / AI 5 / 空白 5 / 共 12）→ 只存草稿
+[me] (6/12) work 第5章 章节测验 -> OK 覆盖率 58% 只存草稿 [0.6min]
+```
+
+### 它是怎么决策的
+
+```
+题库命中 → AI 作答 → 还有空的就留空跳过
+```
+
+- **绝不猜**。答不出来就是答不出来，日志里会明说"AI 未启用"或"AI 调用失败"，不会给你蒙一个字母上去。
+- **答不全就不提交**。空白题占比超过阈值（`[quiz] submit_threshold`，默认 0.2）时，只用 `pyFlag=1` 存草稿，不点提交——留着你手动补。
+- **AI 的答案会回写题库**（`source="ai"`），同一道题不会重复花 token。
+- **题库永远优先**。AI 只在题库没命中时才被调用。
+
+### 费用和隐私
+
+- 一次测验十来道题，`batch_size = 12` 就是一次请求；一章的量通常几分钱以内。
+- 题目文本会发到你自己配置的那个服务商。介意的话用本机 Ollama，数据不出机器。
+- 不启用 AI 时，除学习通本身外不会向任何第三方发请求。
+
+---
+
 ## 常见问题
 
 ### Q1. 突然所有请求都返回 202 / 弹「操作异常，请输入图片中的验证码」
 
 风控触发了。典型原因：并发开得太高、同一账号开了两个进程、或者短时间碰了太多任务点。
 
-处理：
+处理分两步。
+
+**第一步：在真浏览器里过验证码**（HTTP 直接提交过不了，必须在浏览器里点）：
 
 ```powershell
-cx face --url "你刚才在学习通网页里看到验证码的那个地址"
+python scripts/verify_browser.py
 ```
 
-用浏览器打开那个页面，把验证码填进去，验证通过后脚本会把新 cookie 导回数据库。也可以手动：
+脚本会打开 Chrome、停在验证页，把图截到 `data/browser-captcha.png`；你打开图片看清 4 个字符，写进 `data/code.txt`（例如 `xCsm`），脚本读到后自动填进去、提交，成功后把新 cookie 导出到 `data/cookies.json`。
+
+**第二步：把新 cookie 导回数据库**：
 
 ```powershell
-cx login me --browser     # 重新登录一次，效果相同
+cx login me --cookie-file data\cookies.json
 ```
 
-之后把并发降下来：
+看到 `登录成功 puid=…` 就恢复了。之后把并发降下来：
 
 ```powershell
 cx run me --task-concurrency 2
+```
+
+如果想要的是一整个浏览器窗口自己操作（比如当场点别的页面），用：
+
+```powershell
+cx login me --browser     # 重新登录一次，效果相同
 ```
 
 ### Q2. 提示找不到 `cx` 命令

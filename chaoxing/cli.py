@@ -395,6 +395,29 @@ def cmd_enc(version: Optional[str] = typer.Argument(None, help="v1 或 v2")):
     console.print(f"[green]已设置 enc 版本 {version}[/green]")
 
 
+@app.command("web")
+def cmd_web(
+    host: str = typer.Option("127.0.0.1", "--host", help="监听地址；想让同局域网其它设备访问填 0.0.0.0"),
+    port: int = typer.Option(8765, "--port", help="端口"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="启动后自动打开浏览器"),
+):
+    """启动网页控制面板（默认 http://127.0.0.1:8765）。"""
+    try:
+        import uvicorn
+    except ImportError:  # pragma: no cover
+        console.print("[red]缺少依赖：pip install fastapi uvicorn[/red]")
+        raise typer.Exit(code=1)
+
+    url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}"
+    console.print(f"网页面板：[cyan]{url}[/cyan]  （Ctrl+C 停止）")
+    if open_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+    uvicorn.run("chaoxing.web.app:app", host=host, port=port, reload=False)
+
+
 # ---------------------------------------------------------------- 题库
 @quiz_app.command("stats")
 def cmd_quiz_stats():
